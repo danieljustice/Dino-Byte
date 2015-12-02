@@ -4,6 +4,7 @@ using UnityEngine.UI;
 
 public class UpdateScore : MonoBehaviour {
 
+	//NO LONGER IN USE
 	string oldScore;
 	string currentScore;
 	Text txt;

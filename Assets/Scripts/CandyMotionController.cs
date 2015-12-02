@@ -5,30 +5,37 @@ public class CandyMotionController : MonoBehaviour {
 
 	//The purpose of this script is to control the behavior of the candies when 
 	//they are 'spawned' and then send/receive the transform information to/from the network
-
-	public float tumble;
-	public Rigidbody rb;
+	
+	public Rigidbody candyRB;
 	public float thrust;
 	Vector3 position;
 	Quaternion rotation;
 	float smoothing = 10f;
 	bool initialLoad = true;
-	float timeOfLastImpulse;
+	float timeOfNextImpulse;
 	public float timeBetweenImpulses;
+
+	public int candyValue = 1;
+
+	public CandyController candyController;
+	public GamePlayPanel gamePlayPanel;
 
 
 	public void startCandyMovement () {
-		if (PhotonNetwork.isMasterClient) 
-		{
-			//Gives candy a random rotation on spawn
-			GetComponent<Rigidbody> ().angularVelocity = Random.insideUnitSphere * tumble; 
-			applyRandomImpulse();
-		}
-
-		else
-		{
+		if (PhotonNetwork.isMasterClient) {
+			candyRB.isKinematic = false;
+			StartCoroutine(TimedImpulses());
+		}else{
 			StopCoroutine("UpdateData");
 			StartCoroutine ("UpdateData");
+		}
+	}
+
+	public void StopCandyMovement(){
+		if (PhotonNetwork.isMasterClient) {
+			StopCoroutine(TimedImpulses());
+		} else {
+			StopCoroutine(UpdateData());
 		}
 	}
 
@@ -65,19 +72,39 @@ public class CandyMotionController : MonoBehaviour {
 	void applyRandomImpulse()
 	{
 		//Adds random impulse to candy on spawn
-		rb = GetComponent<Rigidbody> ();
 		Vector3 impulseDirection = new Vector3 (Random.Range (-10f, 10f), 0f, Random.Range (-10f, 10f));
-		rb.AddForce (impulseDirection * thrust, ForceMode.Impulse);
+		candyRB.AddForce (impulseDirection * thrust, ForceMode.Impulse);
 	}
 
 
-	void Update () {
-
-		if (timeOfLastImpulse <= Time.time) 
-		{
-			applyRandomImpulse();
-			timeOfLastImpulse = Time.time + timeBetweenImpulses;
+	IEnumerator TimedImpulses(){
+		while (true) {
+			if (timeOfNextImpulse <= Time.time) {
+				applyRandomImpulse ();
+				timeOfNextImpulse = Time.time + timeBetweenImpulses;
+			}
+			yield return null;
 		}
-	
+	}
+
+	public void EatCandy(){
+		gamePlayPanel.UpdatePlayerScore((int)PhotonNetwork.player.customProperties[PlayerProperties.PlayerIndex], candyValue);
+
+		PhotonView photonView = PhotonView.Get (this);
+		photonView.RPC ("TurnOffCandy_RPC", PhotonTargets.AllBuffered);
+	}
+
+	[PunRPC]
+	void TurnOffCandy_RPC()
+	{
+		if (this.gameObject == null) 
+		{
+			Debug.LogError(this.gameObject.name);
+		}
+		else
+		{
+			candyController.ResetCandy(this.gameObject);
+		}
+		
 	}
 }

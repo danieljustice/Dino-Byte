@@ -5,20 +5,22 @@ using UnityEngine.UI;
 public class NetworkManager : MonoBehaviour {
 	[SerializeField] Text connectionText;
 	[SerializeField] Transform[] spawnPoints;
-	[SerializeField] Camera sceneCamera;
 	[SerializeField] GameObject candies;
 	[SerializeField] GameObject lobbyPanel;
 	[SerializeField] GameObject gamePlayPanel;
 	[SerializeField] InputField playerName;
 	[SerializeField] Text[] playerNameOnScoreBoard;
 	PlayerIndicatorUpdater playerIndicatorUpdater;
-	public SetUpGame setUpGame;
 
+	public GameController gameController;
+	public GamePlayPanel gamePlayPanelScript;
+
+	int playerPosition;
 	public bool[] playersInRoom = new bool[4];
-	int index = 0;
 	RoomInfo[] roomsList;
 	GameObject player;
 	
+
 	// Use this for initialization
 	void Start () {
 		
@@ -33,82 +35,121 @@ public class NetworkManager : MonoBehaviour {
 	// Update is called once per frame
 	void Update () {
 		connectionText.text = PhotonNetwork.connectionStateDetailed.ToString ();
-		
-		
 	}
 	
 	void OnJoinedLobby()
 	{
-		TurnOnLobbyPanel ();
-		playerIndicatorUpdater.TurnOffAllIndicators ();
-
+		gameController.setUpLobby();
 	}
 
 	public void JoinRoom()
 	{
+		//called from GUI pushbutton
 		PhotonNetwork.player.name = playerName.text;
-		RoomOptions ro = new RoomOptions (){isVisible = true, maxPlayers = 4};
-		PhotonNetwork.JoinOrCreateRoom ("Dan", ro, TypedLobby.Default);
+		PhotonNetwork.JoinRandomRoom ();
+
 	}
-	
+
+	void OnPhotonRandomJoinFailed(){
+		CreateRoom ();
+	}
+
+	void CreateRoom(){
+		RoomOptions roomOptions = new RoomOptions ();
+		roomOptions.maxPlayers = 4;
+
+		roomOptions.customRoomProperties = new ExitGames.Client.Photon.Hashtable ();
+		roomOptions.customRoomProperties.Add (RoomPropertyType.Player1ID,0);
+		roomOptions.customRoomProperties.Add (RoomPropertyType.Player2ID,0);
+		roomOptions.customRoomProperties.Add (RoomPropertyType.Player3ID,0);
+		roomOptions.customRoomProperties.Add (RoomPropertyType.Player4ID,0);
+		roomOptions.customRoomProperties.Add (RoomPropertyType.Player1Score, 0);
+		roomOptions.customRoomProperties.Add (RoomPropertyType.Player2Score, 0);
+		roomOptions.customRoomProperties.Add (RoomPropertyType.Player3Score, 0);
+		roomOptions.customRoomProperties.Add (RoomPropertyType.Player4Score, 0);
+		roomOptions.customRoomProperties.Add (RoomPropertyType.EndTime, 0);
+
+		PhotonNetwork.CreateRoom (null, roomOptions, TypedLobby.Default);
+	}
+
 	void OnJoinedRoom()
 	{
-		StartSpawnProcess (0f);
-		setUpGame.setUpGameOnJoinedRoom ();
-	}
-	
-	void StartSpawnProcess (float respawnTime)
-	{
-		sceneCamera.enabled = true;
-		StartCoroutine ("SpawnPlayer", respawnTime);
-	}
-	
-	IEnumerator SpawnPlayer (float respawnTime)
-	{
-		yield return new WaitForSeconds(respawnTime);
-
-		index = 0;
-		while (playersInRoom[index] == true && index < 4) 
-		{
-			index++;
-		}
-		PhotonView photonView = PhotonView.Get(this);
-		photonView.RPC ("UpdatePlayers_RPC", PhotonTargets.AllBufferedViaServer, index, true);
-		player = PhotonNetwork.Instantiate ("Player_1", spawnPoints [index].position, spawnPoints [index].rotation, 0);
-		playersInRoom [index] = true;
-		sceneCamera.enabled = false;
-
-		player.transform.Find ("crappy_player").gameObject.tag = "Player" + (index + 1).ToString();
-	
-		player.GetComponentInChildren<Destroy_Candy> ().enabled = true;
-
-		photonView.RPC ("PutPlayerNameOnScoreBoard_RPC", PhotonTargets.AllBufferedViaServer, PhotonNetwork.player.name, index);
-
-
+		playerPosition = DeterminePlayerPosition ();
+		gameController.setUpRoom (playerPosition);
 	}
 
 	void OnReceivedRoomListUpdate()
 	{
 		roomsList = PhotonNetwork.GetRoomList();
 	}
-
-	void TurnOnLobbyPanel()
-	{
-		//Lobby Panel and Game Play Panel should not be active at the same time
-		lobbyPanel.SetActive (true);
-		gamePlayPanel.SetActive (false);
+	
+	public void putPlayerNameOnScoreBoard(string name, int playerIndex){
+		PhotonView photonView = PhotonView.Get(this);
+		photonView.RPC ("PutPlayerNameOnScoreBoard_RPC", PhotonTargets.AllBufferedViaServer, PhotonNetwork.player.name, playerIndex);
 	}
 
 	[PunRPC]
-	void PutPlayerNameOnScoreBoard_RPC(string name, int playerPosition)
-	{
-		playerNameOnScoreBoard [playerPosition].text = name;
+	void PutPlayerNameOnScoreBoard_RPC(string name, int playerIndex){
+		if (name != null) {
+			playerNameOnScoreBoard [playerIndex].text = name;
+		}
+	}
+
+	public int DeterminePlayerPosition(){
+		int playerIndex = 0;
+
+		while ((int)PhotonNetwork.room.customProperties[RoomPropertyType.PlayerIDs[playerIndex]] != 0) {
+			playerIndex++;
+		}
+
+		ExitGames.Client.Photon.Hashtable roomProp = new ExitGames.Client.Photon.Hashtable ();
+		roomProp.Add (RoomPropertyType.PlayerIDs [playerIndex], PhotonNetwork.player.ID);
+		PhotonNetwork.room.SetCustomProperties (roomProp);
+
+		ExitGames.Client.Photon.Hashtable playerIndexHash = new ExitGames.Client.Photon.Hashtable ();
+		playerIndexHash.Add (PlayerProperties.PlayerIndex, playerIndex);
+		PhotonNetwork.player.SetCustomProperties(playerIndexHash);
+
+		updateNumPlayersInRoom (playerIndex, true);
+		return playerIndex + 1;
+	}
+
+	public void OnLeftRoom(){
+		Debug.LogError ("This Player " + PhotonNetwork.player.customProperties [PlayerProperties.PlayerIndex] + " left the room");
+		//ExitGames.Client.Photon.Hashtable resetProperty = new ExitGames.Client.Photon.Hashtable ();
+		//resetProperty.Add (RoomPropertyType.PlayerIDs [(int)PhotonNetwork.player.customProperties [PlayerProperties.PlayerIndex]], 0);
+		//PhotonNetwork.room.SetCustomProperties (resetProperty);
+	}
+
+	void OnPhotonPlayerDisconnected(PhotonPlayer otherPlayer){
+		Debug.LogError ("Player " + otherPlayer.customProperties [PlayerProperties.PlayerIndex] + " left the room");
+		if (PhotonNetwork.isMasterClient) {
+			ExitGames.Client.Photon.Hashtable resetProperty = new ExitGames.Client.Photon.Hashtable ();
+			resetProperty.Add (RoomPropertyType.PlayerIDs [(int)otherPlayer.customProperties[PlayerProperties.PlayerIndex]], 0);
+			PhotonNetwork.room.SetCustomProperties (resetProperty);
+		}
+	}
+
+	public void updateNumPlayersInRoom(int playerIndex, bool isInRoom){
+		PhotonView photonView = PhotonView.Get(this);
+		photonView.RPC ("UpdateNumPlayersInRoom_RPC", PhotonTargets.AllBufferedViaServer, playerIndex, isInRoom);
 	}
 
 	[PunRPC]
-	void UpdatePlayers_RPC(int i, bool flag)
+	void UpdateNumPlayersInRoom_RPC(int playerIndex, bool isInRoom)
 	{
-		playersInRoom [i] = flag;
+		playersInRoom[playerIndex] = isInRoom;
+	}
+
+	public void LeaveRoom(){
+		StartCoroutine (CoLeaveRoom ());
+	}
+
+	IEnumerator CoLeaveRoom(){
+		yield return new WaitForSeconds (3f);
+		gamePlayPanelScript.ResetGamePanel ();
+		PhotonNetwork.LeaveRoom ();
+
 	}
 
 }

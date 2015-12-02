@@ -7,7 +7,7 @@ public class RandomSpawner : MonoBehaviour
 
 
 
-	public GameObject candy;
+	//public GameObject candy;
 	public float spawnWait;
 	public float startWait;
 	public float waveWait;
@@ -17,7 +17,6 @@ public class RandomSpawner : MonoBehaviour
 	public float countDownTime;
 	float timeLeft;
 	public float countDownTimeRemaining;
-	bool flag = true;
 	Vector3 candySpawnPosition = new Vector3(0f, 0f, 0f);
 
 
